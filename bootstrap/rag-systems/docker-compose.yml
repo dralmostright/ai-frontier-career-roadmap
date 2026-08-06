@@ -1,0 +1,57 @@
+# Standalone Postgres + pgvector for the Month 10 capstone.
+#
+# The shared lab instance is in bootstrap/environment/docker-compose.yml.
+# This one exists so the capstone repository is self-contained — a reviewer
+# should be able to clone it and run `docker compose up` without the rest of
+# the course.
+#
+# Note the port: 5433, not 5432, so it can run alongside the lab instance.
+
+name: enterprise-knowledge-assistant
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: rag
+      POSTGRES_PASSWORD: rag
+      POSTGRES_DB: rag
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - work_mem=32MB
+      - -c
+      - maintenance_work_mem=512MB   # HNSW index builds want this generous
+    ports:
+      - "5433:5432"
+    volumes:
+      - ragdata:/var/lib/postgresql/data
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rag -d rag"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://rag:rag@postgres:5432/rag
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  ragdata:

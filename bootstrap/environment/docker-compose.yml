@@ -1,0 +1,135 @@
+# Lab services for the AI Frontier Career Roadmap.
+#
+#   make db-up          Postgres + pgvector only  (Months 7, 10, 11)
+#   make services-up    everything                (Months 14, 15)
+#
+# Nothing here is needed before Month 7. Don't start it early; it's a habit
+# of running services you aren't using.
+
+name: ai-roadmap
+
+services:
+  # --------------------------------------------------------------------------
+  # PostgreSQL with pgvector. Your home turf, and the backbone of the semantic
+  # search engine (M7), the RAG system (M10), and the DBA agent (M11).
+  #
+  # The tuning below is deliberately modest so you can observe the effects of
+  # changing it. In Month 11 you will generate synthetic incidents against this
+  # instance, which is much easier when the defaults are small.
+  # --------------------------------------------------------------------------
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: airoadmap-postgres
+    environment:
+      POSTGRES_USER: airoadmap
+      POSTGRES_PASSWORD: airoadmap
+      POSTGRES_DB: airoadmap
+      # Keep statistics for the DBA agent to read in Month 11.
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - pg_stat_statements.track=all
+      - -c
+      - pg_stat_statements.max=10000
+      - -c
+      - track_io_timing=on
+      - -c
+      - log_min_duration_statement=200
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - work_mem=8MB
+      - -c
+      - max_connections=100
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airoadmap -d airoadmap"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # --------------------------------------------------------------------------
+  # MLflow tracking server — Months 5, 14.
+  # Backed by the same Postgres instance; artifacts on a local volume.
+  # --------------------------------------------------------------------------
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.16.2
+    container_name: airoadmap-mlflow
+    profiles: ["full", "mlops"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri postgresql://airoadmap:airoadmap@postgres:5432/airoadmap
+      --default-artifact-root /mlflow/artifacts
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow-artifacts:/mlflow/artifacts
+    restart: unless-stopped
+
+  # --------------------------------------------------------------------------
+  # Prometheus — Weeks 56, 60. Scrapes your inference service's /metrics.
+  # --------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: airoadmap-prometheus
+    profiles: ["full", "monitoring"]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+    restart: unless-stopped
+
+  # --------------------------------------------------------------------------
+  # Grafana — Week 56. Dashboards for model quality and system health.
+  # --------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: airoadmap-grafana
+    profiles: ["full", "monitoring"]
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafanadata:/var/lib/grafana
+    restart: unless-stopped
+
+  # --------------------------------------------------------------------------
+  # Redis — Week 59. Task queue for async inference workers.
+  # --------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: airoadmap-redis
+    profiles: ["full", "queue"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  mlflow-artifacts:
+  promdata:
+  grafanadata:

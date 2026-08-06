@@ -1,0 +1,32 @@
+# Prometheus scrape config for the lab services. Used from Week 56.
+#
+# The interesting exercise is not "make Prometheus run" — it's deciding which
+# metrics matter for an LLM system. See Week 56 for the metric design work.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    environment: lab
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Your inference / RAG service. Expose /metrics with prometheus-client.
+  # Runs on the host, so reach it through the docker host gateway.
+  - job_name: inference-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:8000"]
+        labels:
+          service: inference-api
+
+  # The DBA agent service (Month 15).
+  - job_name: dba-agent
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:8001"]
+        labels:
+          service: dba-agent
