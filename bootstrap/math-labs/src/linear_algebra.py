@@ -27,6 +27,11 @@ Matrix = NDArray[np.float64]
 # Vector operations
 # ---------------------------------------------------------------------------
 
+def check_1D(a: Vector) -> bool:
+    if a.ndim == 1:
+        return True
+    else:
+        return False
 
 def dot_product(a: Vector, b: Vector) -> float:
     """Return the dot product of two vectors.
@@ -46,7 +51,14 @@ def dot_product(a: Vector, b: Vector) -> float:
     Raises:
         ValueError: if the shapes differ or the inputs are not 1-D.
     """
-    raise NotImplementedError("Week 1")
+    if check_1D(a) or check_1D(b):
+        raise ValueError("Not 1D vector")
+    if a.size != b.size:
+        raise ValueError ("Vectors length not same")
+    dot_product=0
+    for i in range(a.size):
+        dot_product += a[i]*b[i]
+    return dot_product    
 
 
 def norm(v: Vector, p: float = 2.0) -> float:
